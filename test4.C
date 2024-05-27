@@ -15,7 +15,7 @@ void test4()
     setup.fill_matrix();
     setup.initial_multiplicity({1, 7, 7, 3});
     vector<double> real_multiplicity = setup.multiplicity;
-    vector<double> measured_fold = calculate_fold(setup);
+    vector<double> measured_fold = {0.898137, 0.0, 0.005, 0};
 
     for (auto &el : measured_fold)
     {

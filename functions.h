@@ -215,7 +215,7 @@ vector<double> grad_success_brute(Setup S, vector<double> measured_fold, vector<
         grad.push_back((new_x - x) / dx); // Correct gradient calculation
         copy[i] -= dx;                    // Reset the change
     }
-
+    // print_distribution(grad);
     return grad;
 }
 void iterate_brute(Setup &S, vector<double> measured_fold, vector<double> uncertainty, double d0 = 0.001, double lr = 0.00001)
@@ -226,17 +226,16 @@ void iterate_brute(Setup &S, vector<double> measured_fold, vector<double> uncert
     sum_vectors(grad, copy);
     S.initial_multiplicity(copy);
 }
-std::pair<double, std::vector<double>> optimize(Setup &setup, std::vector<double> measured_fold, std::vector<double> uncertainty)
+std::pair<double, std::vector<double>> optimize(Setup &setup, std::vector<double> measured_fold, std::vector<double> uncertainty, double lr = 10000)
 {
-    double lr = 100000;
     int i = 0;
     double buff = Loss(calculate_fold(setup), measured_fold, uncertainty);
     vector<double> multiplicity0 = setup.multiplicity;
-    while (i < 100)
+    while (1)
     {
         iterate_brute(setup, measured_fold, uncertainty, 0.001, lr);
         double el = Loss(calculate_fold(setup), measured_fold, uncertainty);
-        if (el > buff || isnan(el))
+        if (el > buff || isnan(el) or i == 100)
         {
             lr /= 2;
             if (lr < 1e-30)
@@ -251,19 +250,19 @@ std::pair<double, std::vector<double>> optimize(Setup &setup, std::vector<double
             i++;
             multiplicity0 = setup.multiplicity;
             buff = el;
-            cout << "Loss: " << buff << endl;
+            // cout << "Loss: " << buff << endl;
         }
     }
     return std::make_pair(buff, multiplicity0);
 }
 ////////////////////////////////////////////////////////////////
-std::pair<double, std::vector<double>> parallel_optimize(Setup setup, const std::vector<double> &measured_fold, const std::vector<double> &uncertainty, const std::vector<double> &el)
+std::pair<double, std::vector<double>> parallel_optimize(Setup setup, const std::vector<double> &measured_fold, const std::vector<double> &uncertainty, const std::vector<double> &el, double lr = 10000)
 {
     setup.initial_multiplicity(el);
-    return optimize(setup, measured_fold, uncertainty);
+    return optimize(setup, measured_fold, uncertainty, lr);
 }
 
-std::pair<double, std::vector<double>> optimum_auxiliary(Setup setup, int grid_shots, const std::vector<double> &measured_fold, const std::vector<double> &uncertainty)
+std::pair<double, std::vector<double>> optimum_auxiliary(Setup setup, int grid_shots, const std::vector<double> &measured_fold, const std::vector<double> &uncertainty, double lr = 10000)
 {
     std::vector<std::vector<double>> combinations = getCombinations(setup.m, grid_shots);
     double buf = std::numeric_limits<double>::max();
@@ -292,7 +291,7 @@ std::pair<double, std::vector<double>> optimum_auxiliary(Setup setup, int grid_s
     }
     return std::make_pair(buf, out);
 }
-pair<double, vector<double>> find_optimum(Setup setup, int grid_shots, vector<double> measured_fold, vector<double> uncertainty, double de = 0, double ef_shots = 1)
+pair<double, vector<double>> find_optimum(Setup setup, int grid_shots, vector<double> measured_fold, vector<double> uncertainty, double lr = 10000, double de = 0, double ef_shots = 1)
 {
     if (de == 0)
     {
