@@ -8,6 +8,7 @@
 #include "generators.h"
 using namespace std;
 /// ////////////////////////////////////////////////////////////
+typedef double (*FunctionType)(vector<double>, vector<double>, vector<double>);
 void draw_distribution(vector<double> distribution)
 {
     vector<double> X;
@@ -188,7 +189,7 @@ std::vector<double> calculate_fold(Setup S)
     return out;
 }
 
-double Loss(std::vector<double> calculated_fold, std::vector<double> measured_fold, std::vector<double> uncertainty)
+double Loss0(std::vector<double> calculated_fold, std::vector<double> measured_fold, std::vector<double> uncertainty)
 {
     double out = 0;
     for (int i = 0; i < calculated_fold.size(); i++)
@@ -197,11 +198,31 @@ double Loss(std::vector<double> calculated_fold, std::vector<double> measured_fo
     }
     return out;
 }
+double Loss_information(std::vector<double> calculated_fold, std::vector<double> measured_fold, std::vector<double> uncertainty = {})
+{
+    double out = 0;
+    double qi, pi;
+    for (int i = 0; i < calculated_fold.size(); i++)
+    {
+        qi = measured_fold[i];
+        pi = calculated_fold[i];
+        if (qi < 1e-50)
+        {
+            qi = 1e-50;
+        }
+        if (pi < 1e-50)
+        {
+            pi = 1e-50;
+        }
+        out += qi * log2(qi / pi);
+    }
+    return out;
+}
 /////////////////////////////
 /////////brute force//////////
 /////////////////////////////
 /// //////////////////////////////
-vector<double> grad_success_brute(Setup S, vector<double> measured_fold, vector<double> uncertainty, double dx = 0.001)
+vector<double> grad_success_brute(Setup S, vector<double> measured_fold, vector<double> uncertainty, double dx = 0.001, FunctionType Loss = Loss0)
 {
     vector<double> grad;
     vector<double> copy = S.multiplicity;
@@ -216,17 +237,18 @@ vector<double> grad_success_brute(Setup S, vector<double> measured_fold, vector<
         copy[i] -= dx;                    // Reset the change
     }
     // print_distribution(grad);
+    normalize(grad);
     return grad;
 }
-void iterate_brute(Setup &S, vector<double> measured_fold, vector<double> uncertainty, double d0 = 0.001, double lr = 0.00001)
+void iterate_brute(Setup &S, vector<double> measured_fold, vector<double> uncertainty, double d0 = 0.001, double lr = 0.00001, FunctionType func = Loss0)
 {
-    vector<double> grad = grad_success_brute(S, measured_fold, uncertainty, d0);
+    vector<double> grad = grad_success_brute(S, measured_fold, uncertainty, d0, func);
     product_vector_scalar(grad, -lr); // Gradient descent step
     vector<double> copy = S.multiplicity;
     sum_vectors(grad, copy);
     S.initial_multiplicity(copy);
 }
-std::pair<double, std::vector<double>> optimize(Setup &setup, std::vector<double> measured_fold, std::vector<double> uncertainty, double lr = 10000)
+std::pair<double, std::vector<double>> optimize(Setup &setup, std::vector<double> measured_fold, std::vector<double> uncertainty, double lr = 10000, FunctionType Loss = Loss0)
 {
     int i = 0;
     double buff = Loss(calculate_fold(setup), measured_fold, uncertainty);
@@ -235,10 +257,10 @@ std::pair<double, std::vector<double>> optimize(Setup &setup, std::vector<double
     {
         iterate_brute(setup, measured_fold, uncertainty, 0.001, lr);
         double el = Loss(calculate_fold(setup), measured_fold, uncertainty);
-        if (el > buff || isnan(el) or i == 100)
+        if (el > buff || isnan(el) or i == 500)
         {
             lr /= 2;
-            if (lr < 1e-30)
+            if (lr < 1e-20)
             {
                 break;
             }
@@ -250,19 +272,24 @@ std::pair<double, std::vector<double>> optimize(Setup &setup, std::vector<double
             i++;
             multiplicity0 = setup.multiplicity;
             buff = el;
+            // if (buff < 1e-3)
+            // {
+            //     break;
+            // }
+            // cout << "New Loss:" << buff << endl;
             // cout << "Loss: " << buff << endl;
         }
     }
     return std::make_pair(buff, multiplicity0);
 }
 ////////////////////////////////////////////////////////////////
-std::pair<double, std::vector<double>> parallel_optimize(Setup setup, const std::vector<double> &measured_fold, const std::vector<double> &uncertainty, const std::vector<double> &el, double lr = 10000)
+std::pair<double, std::vector<double>> parallel_optimize(Setup setup, const std::vector<double> &measured_fold, const std::vector<double> &uncertainty, const std::vector<double> &el, double lr = 10000, FunctionType Loss = Loss0)
 {
     setup.initial_multiplicity(el);
-    return optimize(setup, measured_fold, uncertainty, lr);
+    return optimize(setup, measured_fold, uncertainty, lr, Loss);
 }
 
-std::pair<double, std::vector<double>> optimum_auxiliary(Setup setup, int grid_shots, const std::vector<double> &measured_fold, const std::vector<double> &uncertainty, double lr = 10000)
+std::pair<double, std::vector<double>> optimum_auxiliary(Setup setup, int grid_shots, const std::vector<double> &measured_fold, const std::vector<double> &uncertainty, double lr = 10000, FunctionType Loss = Loss0)
 {
     std::vector<std::vector<double>> combinations = getCombinations(setup.m, grid_shots);
     double buf = std::numeric_limits<double>::max();
@@ -274,7 +301,7 @@ std::pair<double, std::vector<double>> optimum_auxiliary(Setup setup, int grid_s
     // Define the lambda function to be executed in parallel
     auto task = [&](const std::vector<double> &el)
     {
-        return parallel_optimize(setup, measured_fold, uncertainty, el);
+        return parallel_optimize(setup, measured_fold, uncertainty, el, lr, Loss);
     };
 
     // Execute the task in parallel over all combinations
@@ -291,11 +318,11 @@ std::pair<double, std::vector<double>> optimum_auxiliary(Setup setup, int grid_s
     }
     return std::make_pair(buf, out);
 }
-pair<double, vector<double>> find_optimum(Setup setup, int grid_shots, vector<double> measured_fold, vector<double> uncertainty, double lr = 10000, double de = 0, double ef_shots = 1)
+pair<double, vector<double>> find_optimum(Setup setup, int grid_shots, vector<double> measured_fold, vector<double> uncertainty, double lr = 10000, double de = 0, double ef_shots = 1, FunctionType Loss = Loss0)
 {
     if (de == 0)
     {
-        return optimum_auxiliary(setup, grid_shots, measured_fold, uncertainty);
+        return optimum_auxiliary(setup, grid_shots, measured_fold, uncertainty, lr, Loss);
     }
     double epsilon = setup.epsilon0;
     double buf = __DBL_MAX__;
@@ -303,7 +330,7 @@ pair<double, vector<double>> find_optimum(Setup setup, int grid_shots, vector<do
     for (double ep2 = epsilon - de; ep2 < epsilon + de; ep2 += 2 * de / ef_shots)
     {
         setup.epsilon0 = ep2;
-        auto result = optimum_auxiliary(setup, grid_shots, measured_fold, uncertainty);
+        auto result = optimum_auxiliary(setup, grid_shots, measured_fold, uncertainty, lr, Loss);
         if (result.first < buf)
         {
             buf = result.first;
@@ -348,3 +375,68 @@ pair<vector<double>, vector<double>> fold_distribution(vector<double> fold, int 
     normalize(uncertainties);
     return make_pair(result, uncertainties);
 }
+///////particle swarm////////////////
+/////////////////////////////////////////
+/////////////////////////////////
+
+// Function to calculate KL divergence
+double kl_divergence(const vector<double> &x, const vector<double> &y, Setup S)
+{
+    double divergence = 0.0;
+    S.initial_multiplicity(x);
+    vector<double> z = calculate_fold(S);
+    for (size_t i = 0; i < z.size(); ++i)
+    {
+        if (z[i] > 0)
+        {
+            divergence += z[i] * log(z[i] / y[i]);
+        }
+        }
+    return divergence;
+}
+
+// Function to normalize a distribution to ensure it sums to 1
+vector<double> normalize_distribution(vector<double> &dist)
+{
+    for (double &i : dist)
+    {
+        if (i < 1e-30)
+        {
+            i = 1e-30;
+        }
+    }
+    double sum = accumulate(dist.begin(), dist.end(), 0.0);
+    vector<double> normalized(dist.size());
+    transform(dist.begin(), dist.end(), normalized.begin(),
+              [sum](double d)
+              { return d / sum; });
+    return normalized;
+}
+
+// Function to generate a random distribution
+vector<double> random_distribution(size_t dim)
+{
+    vector<double> dist(dim);
+    random_device rd;
+    mt19937 gen(rd());
+    uniform_real_distribution<> dis(0, 1);
+    generate(dist.begin(), dist.end(), [&]()
+             { return dis(gen); });
+    return normalize_distribution(dist);
+}
+
+// Particle class
+class Particle
+{
+public:
+    vector<double> position;
+    vector<double> velocity;
+    vector<double> best_position;
+    double best_error;
+
+    Particle(size_t dim)
+        : position(random_distribution(dim)),
+          velocity(dim, 0.0),
+          best_position(position),
+          best_error(numeric_limits<double>::max()) {}
+};
