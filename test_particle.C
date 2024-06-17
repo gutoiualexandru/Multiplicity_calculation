@@ -6,11 +6,10 @@ void test_particle()
     vector<double> measured_fold = {3.3857e+09, 2.46312e+09, 5.91864e+08, 1.54377e+08, 3.36631e+07, 6.45244e+06, 1.16963e+06, 212373, 40200, 9060, 8769};
 
     vector<double> target_y = normalize_distribution(measured_fold);
-    cout << "Real Fold:" << endl;
-    print_distribution(target_y);
+
     const size_t dim = target_y.size();
     const size_t num_particles = 1000;
-    const size_t num_iterations = 1000;
+    const size_t num_iterations = 10000;
     const double omega = 0.005;
     const double c1 = 0.5;
     const double c2 = 0.5;
@@ -19,12 +18,15 @@ void test_particle()
     int m = measured_fold.size(); // Maximum multiplicity
     int n = measured_fold.size(); // Maximum fold value
     int N = 21;                   // Example value for N
-    double epsilon = 0.145;        // Example value for total efficiency
+    double epsilon = 0.145;       // Example value for total efficiency
     setup.set_limits(m, n);
     setup.set_epsilon0(epsilon);
     setup.set_N(N);
     setup.fill_matrix();
     // Initialize the swarm
+
+    cout << "Real Fold:" << endl;
+    print_distribution(target_y);
     vector<Particle> particles;
     for (size_t i = 0; i < num_particles; ++i)
     {
